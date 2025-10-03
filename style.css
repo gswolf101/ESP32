@@ -15,6 +15,11 @@ body {
     max-width: 900px;
 }
 
+.titulo, img {
+    width: 40%;
+    text-align: center;
+}
+
 h1 {
     color: #f4c96a;
     text-align: center;
