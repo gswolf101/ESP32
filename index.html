@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Monitoramento em Tempo Real | DHT11 + ESP32</title>
+    
+    <link rel="stylesheet" href="style.css">
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/paho-mqtt/1.0.1/mqttws31.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+
+    <div class="container">
+        <h1>Monitoramento DHT11 com ESP32 e MQTT</h1>
+        
+        <div class="data-cards">
+            <div class="card">
+                <h2>Temperatura</h2>
+                <p class="value"><span id="tempValue">--</span> &deg;C</p>
+            </div>
+            <div class="card">
+                <h2>Umidade</h2>
+                <p class="value"><span id="humidityValue">--</span> %</p>
+            </div>
+        </div>
+
+        <div class="chart-container">
+            <canvas id="realTimeChart"></canvas>
+        </div>
+    </div>
+
+    <script>
+        // --- CONFIGURAÇÕES MQTT ---
+        const brokerHost = "broker.hivemq.com";
+        const brokerPort = 8000; // Porta para WebSockets
+        const tempTopic = "esp32/dht/temperatura";
+        const humidityTopic = "esp32/dht/umidade";
+        const clientID = "webClient_" + parseInt(Math.random() * 1000); // ID único para o cliente web
+        // --- FIM DAS CONFIGURAÇÕES ---
+
+        // Conecta ao broker MQTT
+        const client = new Paho.MQTT.Client(brokerHost, brokerPort, clientID);
+
+        // Define as funções de callback
+        client.onConnectionLost = onConnectionLost;
+        client.onMessageArrived = onMessageArrived;
+
+        // Conecta o cliente
+        client.connect({ onSuccess: onConnect });
+
+        function onConnect() {
+            console.log("Conectado ao Broker MQTT!");
+            // Assina os tópicos
+            client.subscribe(tempTopic);
+            client.subscribe(humidityTopic);
+        }
+
+        function onConnectionLost(responseObject) {
+            if (responseObject.errorCode !== 0) {
+                console.log("Conexão perdida: " + responseObject.errorMessage);
+            }
+        }
+
+        // --- LÓGICA DO GRÁFICO ---
+        const ctx = document.getElementById('realTimeChart').getContext('2d');
+        const chart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: [], // Rótulos de tempo no eixo X
+                datasets: [
+                    {
+                        label: 'Temperatura (°C)',
+                        data: [],
+                        borderColor: 'rgba(255, 99, 132, 1)',
+                        backgroundColor: 'rgba(255, 99, 132, 0.2)',
+                        borderWidth: 2,
+                        yAxisID: 'y'
+                    },
+                    {
+                        label: 'Umidade (%)',
+                        data: [],
+                        borderColor: 'rgba(54, 162, 235, 1)',
+                        backgroundColor: 'rgba(54, 162, 235, 0.2)',
+                        borderWidth: 2,
+                        yAxisID: 'y1'
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                interaction: {
+                    mode: 'index',
+                    intersect: false,
+                },
+                scales: {
+                    x: {
+                        display: true,
+                        title: {
+                            display: true,
+                            text: 'Tempo'
+                        }
+                    },
+                    y: {
+                        type: 'linear',
+                        display: true,
+                        position: 'left',
+                        title: {
+                            display: true,
+                            text: 'Temperatura (°C)'
+                        }
+                    },
+                    y1: {
+                        type: 'linear',
+                        display: true,
+                        position: 'right',
+                        title: {
+                            display: true,
+                            text: 'Umidade (%)'
+                        },
+                        grid: {
+                            drawOnChartArea: false, // só desenha a grade para o primeiro eixo Y
+                        },
+                    }
+                }
+            }
+        });
+
+        const MAX_DATA_POINTS = 20; // Número máximo de pontos de dados a serem exibidos no gráfico
+
+        function addDataToChart(label, tempData, humData) {
+            chart.data.labels.push(label);
+            chart.data.datasets[0].data.push(tempData);
+            chart.data.datasets[1].data.push(humData);
+            
+            if (chart.data.labels.length > MAX_DATA_POINTS) {
+                chart.data.labels.shift();
+                chart.data.datasets.forEach(dataset => {
+                    dataset.data.shift();
+                });
+            }
+            
+            chart.update();
+        }
+        
+        function onMessageArrived(message) {
+            const topic = message.destinationName;
+            const payload = message.payloadString;
+
+            console.log("Mensagem recebida: " + topic + " -> " + payload);
+            const now = new Date();
+            const timeLabel = now.getHours() + ':' + now.getMinutes() + ':' + now.getSeconds();
+
+            if (topic === tempTopic) {
+                document.getElementById("tempValue").innerText = payload;
+                const lastHumidity = chart.data.datasets[1].data[chart.data.datasets[1].data.length - 1] || 0;
+                addDataToChart(timeLabel, parseFloat(payload), lastHumidity);
+            }
+            
+            if (topic === humidityTopic) {
+                document.getElementById("humidityValue").innerText = payload;
+                if (chart.data.datasets[1].data.length > 0) {
+                    chart.data.datasets[1].data[chart.data.datasets[1].data.length - 1] = parseFloat(payload);
+                    chart.update();
+                }
+            }
+        }
+    </script>
+</body>
+</html>
